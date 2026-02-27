@@ -32,15 +32,25 @@ enum : chirp_value
   chirp_max_exec_stack = 8,
 };
 
+#define chirp_quickstart(name)                                                 \
+  static chirp_value name##_stack[chirp_reccomended_stack_size];               \
+  static struct chirp_word name##_heap[chirp_reccomended_heap_size];           \
+  struct chirp_vm name;                                                        \
+  chirp_init(&(name),                                                          \
+             name##_stack,                                                     \
+             chirp_reccomended_stack_size,                                     \
+             name##_heap,                                                      \
+             chirp_reccomended_heap_size,                                      \
+             0)
+
 enum chirp_type : chirp_value
 {
 #define deriv(n) (((chirp_value)(n) << chirp_extra_offset))
   chirp_num = deriv(0),
   chirp_fnptr = deriv(1),
   chirp_str = deriv(2),
-  chirp_foreign = deriv(3),
-  chirp_ref = deriv(4),
-  chirp_chain = deriv(5),
+  chirp_ptr = deriv(3),
+  chirp_chain = deriv(4),
   chirp_sentinel = deriv(6),
 #undef deriv
 };
@@ -53,10 +63,10 @@ enum chirp_type : chirp_value
 #define chirp_to_num(in)                                                       \
   chirp_extend(((in) & ~chirp_extra_mask), chirp_bitsize - (chirp_extra_width))
 #define chirp_type(in) ((in) & (chirp_value)chirp_extra_mask)
-#define chirp_from_ref(in) (((in) & chirp_data_mask) | chirp_ref)
 #define chirp_from_num(in) (((in) & chirp_data_mask) | chirp_num)
 #define chirp_from_pair(in) (((in) & chirp_data_mask) | chirp_chain)
-#define chirp_from_foreign(fn) ((chirp_value)(fn) | (chirp_value)chirp_fnptr)
+#define chirp_from_fnptr(fn) ((chirp_value)(fn) | (chirp_value)chirp_fnptr)
+#define chirp_from_ptr(in) ((chirp_value)(in) | (chirp_value)chirp_ptr)
 
 /* word expands out to other words or a value */
 struct chirp_word
