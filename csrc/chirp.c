@@ -134,20 +134,24 @@ isnum(wordbufptr restrict ptr)
   return 1;
 }
 
-static signed
+static chirp_number
 atoi(wordbufptr restrict ptr)
 {
   enum
   {
-    base = 10
+    base = 10,
+    mask = ((chirp_value)1 << 63U) - 1U,
   };
 
-  signed out = 0;
-  for (unsigned i = 0, (c) = ((unsigned)(*ptr)[i]); i < wordcap && (*ptr)[i];
+  chirp_value out = 0;
+
+  int const isneg = (**ptr == '-');
+  for (unsigned i = isneg, (c) = ((unsigned)(*ptr)[i]);
+       i < wordcap && (*ptr)[i];
        (c) = (unsigned)(*ptr)[i++])
     out *= base, out += (signed)(c - '0');
 
-  return out;
+  return (chirp_number)((out & mask) * (isneg ? -1 : 1));
 }
 
 /* jenkins one-at-a-time hash */

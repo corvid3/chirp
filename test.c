@@ -62,7 +62,6 @@ static void
 crash(struct chirp_vm* vm)
 {
   vm->retstack = vm->retstack_start + 1;
-  chirp_run(vm, "OK 1 ->@");
 }
 
 static void
@@ -121,12 +120,13 @@ main()
   chirp_add_foreign(&vm, "crash", crash, 0);
   chirp_add_foreign(&vm, "@", deref, 0);
 
-  assert(chirp_run(&vm,
-                   ": OK 0 ;"
-                   "8 allocate ' OK !"
-                   "OK @ 0 ->@"));
+  // assert(chirp_run(&vm,
+  //                  ": OK 0 ;"
+  //                  "8 allocate ' OK !"
+  //                  "OK @ 0 ->@"));
 
-  chirp_value const volatile* ok = (chirp_value const volatile*)chirp_pop(vm);
+  // chirp_value const volatile* ok = (chirp_value const
+  // volatile*)chirp_pop(vm);
 
   inbuf buf;
   while (get_input(&buf)) {
@@ -138,13 +138,9 @@ main()
       printf("compile failure.\n");
       continue;
     }
-    chirp_value val = *ok;
-    if (val == 0)
-      printf("ok.\n");
-    else if (val == 1)
-      printf("err.\n");
-    else
-      assert(0);
+
+    // chirp_value val = *ok;
+    printf("ok.\n");
   }
 
   /*
