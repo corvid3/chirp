@@ -248,7 +248,10 @@ chirp_run(register struct chirp_vm* restrict vm, char const* code)
     if (strncmp(buf, "'", wordcap) == 0) {
       idx += next_word(code + idx, len - idx, &buf);
       chirp_value const val = hash(&buf);
-      memcpy(chirp_here(*vm), &val, sizeof val);
+      struct word_header const* word = chirp_find_word(vm, val);
+      if (!word)
+        return 0;
+      chirp_push(*vm) = (chirp_value)word;
       continue;
     }
 

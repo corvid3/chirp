@@ -58,14 +58,27 @@ pstr(struct chirp_vm* vm)
   printf("%s", (char const*)strptr);
 }
 
-/* (name bytesize -- ) */
 static void
-varset(struct chirp_vm* vm)
+crash(struct chirp_vm* vm)
 {
-  chirp_value const name = *(chirp_value*)chirp_here(*vm);
-  struct word_header* word = chirp_find_word(vm, name);
-  assert(word);
-  word->instructions[0].operand = chirp_pop(*vm);
+  vm->retstack = vm->retstack_start + 1;
+  chirp_run(vm, "OK 1 ->@");
+}
+
+static void
+deref(struct chirp_vm* vm)
+{
+  chirp_value const* val = (chirp_value*)chirp_pop(*vm);
+  chirp_push(*vm) = *val;
+}
+
+/* (val ptr -- ) */
+static void
+derefset(struct chirp_vm* vm)
+{
+  chirp_value const val = chirp_pop(*vm);
+  chirp_value* ptr = (chirp_value*)chirp_pop(*vm);
+  *ptr = val;
 }
 
 enum
@@ -97,13 +110,23 @@ main()
 {
   chirp_quickstart(vm);
   chirp_add_foreign(&vm, "+", add, 0);
+  chirp_add_foreign(&vm, "@", deref, 0);
   chirp_add_foreign(&vm, "dup", dup, 0);
   chirp_add_foreign(&vm, "display", display, 0);
   chirp_add_foreign(&vm, "allocate", allocate, 0);
   chirp_add_foreign(&vm, "unalloc", unalloc, 0);
   chirp_add_foreign(&vm, "getstr", getstr, 0);
   chirp_add_foreign(&vm, "pstr", pstr, 0);
-  chirp_add_foreign(&vm, "!", varset, 0);
+  chirp_add_foreign(&vm, "!", derefset, 0);
+  chirp_add_foreign(&vm, "crash", crash, 0);
+  chirp_add_foreign(&vm, "@", deref, 0);
+
+  assert(chirp_run(&vm,
+                   ": OK 0 ;"
+                   "8 allocate ' OK !"
+                   "OK @ 0 ->@"));
+
+  chirp_value const volatile* ok = (chirp_value const volatile*)chirp_pop(vm);
 
   inbuf buf;
   while (get_input(&buf)) {
@@ -111,11 +134,49 @@ main()
       break;
     chirp_reset(vm);
 
-    if (!chirp_run(&vm, buf))
-      printf("failed.\n");
-    else
+    if (!chirp_run(&vm, buf)) {
+      printf("compile failure.\n");
+      continue;
+    }
+    chirp_value val = *ok;
+    if (val == 0)
       printf("ok.\n");
+    else if (val == 1)
+      printf("err.\n");
+    else
+      assert(0);
   }
+
+  /*
+
+  : opendb immediate ;
+
+  : db
+    opendb
+  ;
+
+  : views
+    db "views" get
+  ;
+
+  : template
+    "template" openfile
+  ;
+
+  : pusharena
+
+  ;
+
+  : entry
+  pusharena
+    views tostring
+    template
+    "%VIEWS%" regexreplace
+    output
+  poparena
+  ;
+
+  */
 
   // if (!chirp_run(&vm, "24 allocate dup getstr pstr 24 unalloc"))
   //   printf("failed\n");
