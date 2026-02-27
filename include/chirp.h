@@ -50,22 +50,44 @@ enum : chirp_value
 #define chirp_from_fnptr(fn) ((chirp_value)(fn) | (chirp_value)chirp_fnptr)
 #define chirp_from_ptr(in) ((chirp_value)(in) | (chirp_value)chirp_ptr)
 
-struct chirp_instr;
+typedef chirp_value chirp_operand;
+typedef void (*op_fn)(struct chirp_vm* vm, void* operand);
+
+struct chirp_instr
+{
+  op_fn fn;
+  chirp_operand operand;
+};
+
+struct word_header
+{
+  chirp_value hash;
+  void* backptr;
+  struct chirp_instr instructions[];
+};
+
 struct chirp_vm
 {
   struct chirp_instr const* ip;
   void* dict_head;
 
   chirp_value* stack;
+  chirp_value* stack_start;
+
   struct chirp_instr const** retstack;
+  struct chirp_instr const** retstack_start;
+
   chirp_byte* heap;
 };
+
+struct word_header*
+chirp_find_word(struct chirp_vm* restrict vm, chirp_value hashname);
 
 #define chirp_init(stack_, retstack_, heap_)                                   \
   (struct chirp_vm)                                                            \
   {                                                                            \
-    .dict_head = 0, .ip = 0, .stack = (stack_), .retstack = (retstack_),       \
-    .heap = (heap_),                                                           \
+    .dict_head = 0, .ip = 0, .stack = (stack_), .stack_start = (stack_),       \
+    .retstack = (retstack_), .retstack_start = (retstack_), .heap = (heap_),   \
   }
 
 int
@@ -86,3 +108,6 @@ chirp_add_foreign(struct chirp_vm* restrict vm,
 #define chirp_rpush(vm) chirp_sptr_push((vm).retstack)
 #define chirp_here(vm) (vm).heap
 #define chirp_allot(vm, size) ((vm).heap += (size))
+
+#define chirp_reset(vm)                                                        \
+  ((vm).stack = (vm).stack_start, (vm).retstack = (vm).retstack_start)

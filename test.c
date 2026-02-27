@@ -1,4 +1,5 @@
 #include "chirp.h"
+#include <assert.h>
 #include <stdalign.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -57,6 +58,40 @@ pstr(struct chirp_vm* vm)
   printf("%s", (char const*)strptr);
 }
 
+/* (name bytesize -- ) */
+static void
+varset(struct chirp_vm* vm)
+{
+  chirp_value const name = *(chirp_value*)chirp_here(*vm);
+  struct word_header* word = chirp_find_word(vm, name);
+  assert(word);
+  word->instructions[0].operand = chirp_pop(*vm);
+}
+
+enum
+{
+  inbuf_size = 128,
+};
+
+typedef char inbuf[inbuf_size];
+typedef inbuf(*restrict inbufptr);
+
+static int
+get_input(inbufptr out)
+{
+  int i = 0;
+  int c = 0;
+  while ((c = getchar()) && i < (inbuf_size - 1)) {
+    if (c == EOF)
+      return 0;
+    if (c == '\n')
+      break;
+    (*out)[i++] = (char)c;
+  }
+  (*out)[i] = 0;
+  return 1;
+}
+
 int
 main()
 {
@@ -68,7 +103,20 @@ main()
   chirp_add_foreign(&vm, "unalloc", unalloc, 0);
   chirp_add_foreign(&vm, "getstr", getstr, 0);
   chirp_add_foreign(&vm, "pstr", pstr, 0);
+  chirp_add_foreign(&vm, "!", varset, 0);
 
-  if (!chirp_run(&vm, "24 allocate dup getstr pstr 24 unalloc"))
-    printf("failed\n");
+  inbuf buf;
+  while (get_input(&buf)) {
+    if (buf[0] == 0)
+      break;
+    chirp_reset(vm);
+
+    if (!chirp_run(&vm, buf))
+      printf("failed.\n");
+    else
+      printf("ok.\n");
+  }
+
+  // if (!chirp_run(&vm, "24 allocate dup getstr pstr 24 unalloc"))
+  //   printf("failed\n");
 }

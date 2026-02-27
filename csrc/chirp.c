@@ -54,38 +54,18 @@ enum : unsigned int
   native_immediate_marker = -2U,
   pref_align = _Alignof(chirp_value),
   wordcap = 16,
+
+  imm_offset = 0,
+  exec_offset = 1,
 };
 
-typedef chirp_value chirp_operand;
-typedef void (*op_fn)(struct chirp_vm* vm, void* operand);
-
-struct chirp_instr
-{
-  op_fn fn;
-  chirp_operand operand;
-};
-
-struct word_header
-{
-  chirp_value hash;
-  void* backptr;
-  /* FIXME: don't actually need this. overload the hash value later. */
-  /* if -1U, then this is a struct dict_entry_native
-   * if -2U, then this is also a native fn, but is an immediate */
-  unsigned num_instructions;
-};
-
-struct word_native
-{
-  struct word_header header;
-  chirp_foreign_fn fn;
-};
-
-struct word_proc
-{
-  struct word_header header;
-  struct chirp_instr instructions[];
-};
+#define word_backptr(hdr)                                                      \
+  (void*)((uintptr_t)((hdr).backptr) & ~((uintptr_t)(1U << 2U) - 1U))
+#define word_getbit(hdr, in)                                                   \
+  (((uintptr_t)((hdr).backptr)) & ((uintptr_t)1 << (in)))
+#define word_immediate(hdr) (word_getbit(hdr, 0U) != 0)
+#define ptr_setbit(ptr, in, at)                                                \
+  (void*)((uintptr_t)(ptr) | (uintptr_t)((in) != 0) << (uintptr_t)(at))
 
 typedef char wordbuf[wordcap];
 typedef wordbuf(*restrict wordbufptr);
@@ -188,11 +168,11 @@ hash(wordbufptr restrict ptr)
 }
 
 struct word_header*
-find_word(struct chirp_vm* restrict vm, chirp_value const hashname)
+chirp_find_word(struct chirp_vm* restrict vm, chirp_value const hashname)
 {
   struct word_header* cur = vm->dict_head;
   while (cur && cur->hash != hashname)
-    cur = cur->backptr;
+    cur = word_backptr(*cur);
 
   return cur;
 }
@@ -200,22 +180,15 @@ find_word(struct chirp_vm* restrict vm, chirp_value const hashname)
 static int
 interpret(register struct chirp_vm* restrict vm, wordbufptr buf)
 {
-  struct word_header const* word = find_word(vm, hash(buf));
+  struct word_header const* word = chirp_find_word(vm, hash(buf));
   if (word) {
-    /* goofy casting workaround to fall within standard constraints */
-    if (word->num_instructions == native_marker) {
-      struct word_native const* native = (void const*)word;
-      native->fn(vm);
-    } else {
-      struct word_proc const* proc = (void const*)word;
-      chirp_rpush(*vm) = 0;
-      vm->ip = proc->instructions;
-      while (vm->ip) {
-        op_fn fn = vm->ip->fn;
-        void* op = (char*)1 - 1 + vm->ip->operand;
-        vm->ip++;
-        fn(vm, op);
-      }
+    chirp_rpush(*vm) = 0;
+    vm->ip = word->instructions;
+    while (vm->ip) {
+      op_fn fn = vm->ip->fn;
+      void* op = (char*)1 - 1 + vm->ip->operand;
+      vm->ip++;
+      fn(vm, op);
     }
   } else {
     if (!isnum(buf))
@@ -224,6 +197,35 @@ interpret(register struct chirp_vm* restrict vm, wordbufptr buf)
     chirp_push(*vm) = atoi(buf);
   }
 
+  return 1;
+}
+
+static signed
+compile(register struct chirp_vm* restrict vm, wordbufptr buf)
+{
+  if (strncmp(*buf, ";", wordcap) == 0)
+    return 0;
+
+  struct word_header* word = chirp_find_word(vm, hash(buf));
+  struct chirp_instr* instr = (void*)chirp_here(*vm);
+  chirp_allot(*vm, sizeof *instr);
+
+  if (word) {
+    if (word_immediate(*word)) {
+      /* FIXME: runnet */
+      __builtin_abort();
+    } else {
+      instr->fn = (op_fn)instr_subcall;
+      instr->operand =
+        (chirp_operand)((struct word_header const*)word)->instructions;
+    }
+  } else {
+    if (!isnum(buf))
+      return -1;
+    chirp_number const num = atoi(buf);
+    instr->fn = (op_fn)instr_push;
+    instr->operand = (chirp_operand)num;
+  }
   return 1;
 }
 
@@ -243,18 +245,30 @@ chirp_run(register struct chirp_vm* restrict vm, char const* code)
     if (strncmp(buf, ".", wordcap) == 0)
       break;
 
+    if (strncmp(buf, "'", wordcap) == 0) {
+      idx += next_word(code + idx, len - idx, &buf);
+      chirp_value const val = hash(&buf);
+      memcpy(chirp_here(*vm), &val, sizeof val);
+      continue;
+    }
+
     if (strncmp(buf, ":", wordcap) == 0) {
       idx += next_word(code + idx, len - idx, &buf);
-      struct word_proc* restrict const word = (void*)chirp_here(*vm);
-      word->header.hash = hash(&buf);
-      word->header.num_instructions = 0;
-      word->header.backptr = vm->dict_head;
+      struct word_header* restrict const word = (void*)chirp_here(*vm);
+      word->hash = hash(&buf);
+      word->backptr = vm->dict_head;
       vm->dict_head = word;
       chirp_allot(*vm, sizeof(*word));
-      goto compile;
-    compileret:;
-      struct chirp_instr* end = (void*)chirp_here(*vm);
-      word->header.num_instructions = end - word->instructions;
+      signed retval = 0;
+      do
+        idx += next_word(code + idx, len - idx, &buf);
+      while ((retval = compile(vm, &buf)));
+      if (retval == -1)
+        return 0;
+      struct chirp_instr* retinstr = (void*)chirp_here(*vm);
+      chirp_allot(*vm, sizeof *retinstr);
+      retinstr->fn = (op_fn)instr_ret;
+      retinstr->operand = 0;
       continue;
     }
 
@@ -263,43 +277,6 @@ chirp_run(register struct chirp_vm* restrict vm, char const* code)
   } while (1);
 
   return 1;
-
-compile:
-  while (1) {
-    idx += next_word(code + idx, len - idx, &buf);
-    if (strncmp(buf, ";", wordcap) == 0)
-      break;
-
-    struct word_header* word = find_word(vm, hash(&buf));
-    struct chirp_instr* instr = (void*)chirp_here(*vm);
-    chirp_allot(*vm, sizeof *instr);
-
-    if (word) {
-      if (word->num_instructions == native_immediate_marker) {
-        /* FIXME: runnet */
-      } else if (word->num_instructions == native_marker) {
-        instr->fn = (void*)instr_native;
-        instr->operand = (chirp_operand)((struct word_native const*)word)->fn;
-      } else {
-        instr->fn = (op_fn)instr_subcall;
-        instr->operand =
-          (chirp_operand)((struct word_proc const*)word)->instructions;
-      }
-    } else {
-      if (!isnum(&buf))
-        return 0;
-      chirp_number const num = atoi(&buf);
-      instr->fn = (op_fn)instr_push;
-      instr->operand = (chirp_operand)num;
-    }
-  }
-
-  struct chirp_instr* retinstr = (void*)chirp_here(*vm);
-  chirp_allot(*vm, sizeof *retinstr);
-  retinstr->fn = (op_fn)instr_ret;
-  retinstr->operand = 0;
-
-  goto compileret;
 }
 
 void
@@ -310,13 +287,15 @@ chirp_add_foreign(struct chirp_vm* restrict vm,
 {
   wordbuf buf = { 0 };
   cstrtowordbuf(name, &buf);
-  struct word_native* ptr = align(vm);
-  ptr->header.hash = hash(&buf);
-  ptr->header.num_instructions =
-    immediate ? native_immediate_marker : native_marker;
-  ptr->header.backptr = vm->dict_head;
-  ptr->fn = fn;
-  chirp_allot(*vm, sizeof *ptr);
+  struct word_header* ptr = align(vm);
+  ptr->hash = hash(&buf);
+  ptr->backptr = ptr_setbit(vm->dict_head, immediate, 0);
+  ptr->backptr = vm->dict_head;
+  ptr->instructions[0].fn = (op_fn)instr_native;
+  ptr->instructions[0].operand = (uintptr_t)fn;
+  ptr->instructions[1].fn = (op_fn)instr_ret;
+  ptr->instructions[1].operand = (uintptr_t)0;
+  chirp_allot(*vm, sizeof *ptr + 2 * sizeof(struct chirp_instr));
   vm->dict_head = ptr;
 }
 
