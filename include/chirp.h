@@ -9,7 +9,7 @@ typedef unsigned char chirp_byte;
 #define chirp_bitsize (sizeof(chirp_value) * 8)
 
 struct chirp_vm;
-typedef void (*chirp_foreign_fn)(struct chirp_vm* vm, void*);
+typedef void (*chirp_foreign_fn)(struct chirp_vm* vm);
 
 enum : chirp_value
 {
@@ -81,6 +81,8 @@ chirp_add_foreign(struct chirp_vm* restrict vm,
 
 #define chirp_pop(vm) chirp_sptr_pop((vm).stack)
 #define chirp_push(vm) chirp_sptr_push((vm).stack)
+#define chirp_top(vm) (*((vm).stack - 1))
 #define chirp_rpop(vm) chirp_sptr_pop((vm).retstack)
 #define chirp_rpush(vm) chirp_sptr_push((vm).retstack)
-#define chirp_here(vm) (vm)->heap
+#define chirp_here(vm) (vm).heap
+#define chirp_allot(vm, size) ((vm).heap += (size))
