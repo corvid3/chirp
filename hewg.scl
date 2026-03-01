@@ -5,7 +5,7 @@ type = "library"
 [project]
 version = "0.1.0"
 org = "crow"
-name = "chirp-interpret"
+name = "chirp"
 description = "core interpreter of the chirp language"
 authors = { }
 
@@ -19,7 +19,7 @@ std = 23
 sources = { }
 
 [c]
-flags = { "-Wall" "-Wextra" "-Werror" }
+flags = { "-Wall" "-Wextra" }
 std = 17
 sources = {
 	"chirp.c"

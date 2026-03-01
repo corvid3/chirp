@@ -23,3 +23,4 @@
    s" res://somefile" loadfile s+a
    reset-arena
 ;
+

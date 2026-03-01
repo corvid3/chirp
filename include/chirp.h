@@ -9,7 +9,8 @@ typedef unsigned char chirp_byte;
 #define chirp_bitsize (sizeof(chirp_value) * 8)
 
 struct chirp_vm;
-typedef void (*chirp_foreign_fn)(struct chirp_vm* vm);
+typedef struct chirp_vm* restrict chirp_vm_param;
+typedef void (*chirp_foreign_fn)(register chirp_vm_param);
 
 enum : chirp_value
 {
@@ -32,10 +33,11 @@ enum : chirp_value
 
 #define chirp_quickstart(name)                                                 \
   static chirp_value name##_stack[chirp_reccomended_stack_size];               \
-  static chirp_byte name##_heap[chirp_reccomended_heap_size];                  \
+  static chirp_byte name##_sbrk[chirp_reccomended_heap_size];                  \
   static struct chirp_instr const*                                             \
     name##_retstack[chirp_reccomended_retstack_size];                          \
-  struct chirp_vm name = chirp_init(name##_stack, name##_retstack, name##_heap);
+  struct chirp_vm name;                                                        \
+  chirp_init(&(name), name##_stack, name##_retstack, name##_sbrk);
 
 #define chirp_extend(in, size)                                                 \
   (((in) & ((chirp_value)1 << ((size) - 1)))                                   \
@@ -51,7 +53,7 @@ enum : chirp_value
 #define chirp_from_ptr(in) ((chirp_value)(in) | (chirp_value)chirp_ptr)
 
 typedef chirp_value chirp_operand;
-typedef void (*op_fn)(struct chirp_vm* vm, void* operand);
+typedef void (*op_fn)(chirp_vm_param vm, void* operand);
 
 struct chirp_instr
 {
@@ -62,36 +64,41 @@ struct chirp_instr
 struct word_header
 {
   chirp_value hash;
-  void* backptr;
+  struct word_header const* backptr;
   struct chirp_instr instructions[];
 };
 
 struct chirp_vm
 {
   struct chirp_instr const* ip;
-  void* dict_head;
+
+  char const* input_buffer;
+  unsigned parsing_idx;
+  unsigned input_buffer_length;
+
+  /* first dictionary entry */
+  struct word_header* dict_head;
 
   chirp_value* stack;
   chirp_value* stack_start;
-
   struct chirp_instr const** retstack;
   struct chirp_instr const** retstack_start;
+  chirp_byte* sbreak;
 
-  chirp_byte* heap;
+  int compiling;
 };
 
-struct word_header*
-chirp_find_word(struct chirp_vm* restrict vm, chirp_value hashname);
+void
+chirp_init(chirp_vm_param vm,
+           chirp_value* stack,
+           struct chirp_instr const** retstack,
+           void* sbreak);
 
-#define chirp_init(stack_, retstack_, heap_)                                   \
-  (struct chirp_vm)                                                            \
-  {                                                                            \
-    .dict_head = 0, .ip = 0, .stack = (stack_), .stack_start = (stack_),       \
-    .retstack = (retstack_), .retstack_start = (retstack_), .heap = (heap_),   \
-  }
+struct word_header const*
+chirp_find_word(chirp_vm_param vm, chirp_value hashname);
 
 int
-chirp_run(struct chirp_vm* restrict, char const* code);
+chirp_run(chirp_vm_param vm, char const* code);
 void
 chirp_add_foreign(struct chirp_vm* restrict vm,
                   char const* name,
@@ -100,14 +107,14 @@ chirp_add_foreign(struct chirp_vm* restrict vm,
 
 #define chirp_sptr_push(in) (*((in)++))
 #define chirp_sptr_pop(in) (*(--(in)))
-
 #define chirp_pop(vm) chirp_sptr_pop((vm).stack)
+#define chirp_popptr(vm) (*((void**)((vm).stack--) - 1))
 #define chirp_push(vm) chirp_sptr_push((vm).stack)
 #define chirp_top(vm) (*((vm).stack - 1))
 #define chirp_rpop(vm) chirp_sptr_pop((vm).retstack)
 #define chirp_rpush(vm) chirp_sptr_push((vm).retstack)
-#define chirp_here(vm) (vm).heap
-#define chirp_allot(vm, size) ((vm).heap += (size))
+#define chirp_here(vm) (vm).sbreak
+#define chirp_allot(vm, size) ((vm).sbreak += (size))
 
 #define chirp_reset(vm)                                                        \
   ((vm).stack = (vm).stack_start, (vm).retstack = (vm).retstack_start)
